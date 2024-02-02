@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use std::{fmt::Display, fs};
-use syn::{Expr, ExprLit, ExprPath, Item, ItemConst, Lit, Path, Type};
+use syn::{BinOp, Expr, ExprBinary, ExprLit, ExprPath, Item, ItemConst, Lit, Path, Type};
 
 //use syn::File;
 
@@ -41,6 +41,7 @@ enum OCamlExpr {
     Literal(OCamlLiteral),
     Path(Vec<String>),
     Unary(Box<OCamlUnaryOperator>), //Binary
+    Binary(Box<OCamlBinaryExpr>),
                                     //Struct
 }
 
@@ -57,6 +58,7 @@ impl Display for OCamlExpr {
                     .join(".")
             ),
             OCamlExpr::Unary(unary) => write!(f, "{}", unary),
+            OCamlExpr::Binary(binary) => write!(f, "{}", binary),
         }
     }
 }
@@ -90,11 +92,22 @@ impl Display for OCamlUnaryOperator {
         }
     }
 }
-//#[derive(Debug)]
-//enum OCamlBinaryExpr {
-//    And { left: OCamlExpr, right: OCamlExpr },
-//    Or { left: OCamlExpr, right: OCamlExpr },
-//}
+
+#[derive(Debug)]
+enum OCamlBinaryExpr {
+    And { left: OCamlExpr, right: OCamlExpr },
+    Or { left: OCamlExpr, right: OCamlExpr },
+    Plus { left: OCamlExpr, right: OCamlExpr },
+}
+
+impl Display for OCamlBinaryExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OCamlBinaryExpr::Plus {left, right} => write!(f, "{left} + {right}"),
+            _ => todo!("something else again"),
+        }
+    }
+}
 
 fn main() {
     let filename = "empty.rs";
@@ -106,7 +119,7 @@ fn main() {
 
     let syntax = syn::parse_file(&src).expect("Unable to parse file");
 
-    //println!("{:#?}", syntax);
+    println!("{:#?}", syntax);
 
     let syntax_items = syntax
         .items
@@ -138,10 +151,25 @@ fn rust_item_to_ocaml_item(item: syn::Item) -> Option<OCaml> {
     }
 }
 
+fn rust_bin_expr_to_ocaml_bin_expr(expr: &ExprBinary) -> Option<OCamlBinaryExpr> {
+    let left = rust_expr_to_ocaml_expr(&expr.left);
+    let right = rust_expr_to_ocaml_expr(&expr.right);
+    match (left, right, expr.op) {
+        (Some(l), Some(r), BinOp::Add(_))  => {
+            Some(OCamlBinaryExpr::Plus {left: l, right: r})
+        },
+        _ => unimplemented!("{:#?} is not implemented", expr),
+    }
+}
+
 fn rust_expr_to_ocaml_expr(expr: &Expr) -> Option<OCamlExpr> {
     match expr {
         Expr::Lit(ExprLit { lit, .. }) => {
             Some(OCamlExpr::Literal(rust_literal_to_ocaml_literal(lit)?))
+        }
+        Expr::Binary(expr) => {
+            rust_bin_expr_to_ocaml_bin_expr(expr)
+                .map(|be| OCamlExpr::Binary(Box::new(be)))
         }
         Expr::Path(ExprPath { path, .. }) => Some(OCamlExpr::Path(extract_var_from_rust_ast(path))),
         _ => todo!("{:#?} is not implemented", expr),
